@@ -6,6 +6,13 @@ import simpledb.execution.Predicate;
  */
 public class IntHistogram {
 
+    private final int buckets;
+    private final int min;
+    private final int max;
+    private final int width;
+    private int[] counts;
+    private int total;
+
     /**
      * Create a new IntHistogram.
      * 
@@ -24,6 +31,12 @@ public class IntHistogram {
      */
     public IntHistogram(int buckets, int min, int max) {
     	// some code goes here
+        this.buckets = buckets;
+        this.min = min;
+        this.max = max;
+        width = Math.max((max - min + 1) / buckets, 1);
+        counts = new int[buckets];
+        total = 0;
     }
 
     /**
@@ -32,6 +45,9 @@ public class IntHistogram {
      */
     public void addValue(int v) {
     	// some code goes here
+        int i = Math.min((v - min) / width, buckets - 1);
+        counts[i]++;
+        total++;
     }
 
     /**
@@ -45,9 +61,48 @@ public class IntHistogram {
      * @return Predicted selectivity of this particular operator and value
      */
     public double estimateSelectivity(Predicate.Op op, int v) {
-
     	// some code goes here
-        return -1.0;
+        if (v > max) {
+            if (op == Predicate.Op.GREATER_THAN || op == Predicate.Op.GREATER_THAN_OR_EQ || op == Predicate.Op.EQUALS) {
+                return 0.0;
+            }
+            return 1.0;
+        } else if (v < min) {
+            if (op == Predicate.Op.LESS_THAN || op == Predicate.Op.LESS_THAN_OR_EQ || op == Predicate.Op.EQUALS) {
+                return 0.0;
+            }
+            return 1.0;
+        }
+        int i = Math.min((v - min) / width, buckets - 1);
+        int height = counts[i];
+
+        double selectivity = 0;
+
+        if (op == Predicate.Op.LESS_THAN_OR_EQ || op == Predicate.Op.GREATER_THAN_OR_EQ || op == Predicate.Op.EQUALS || op == Predicate.Op.NOT_EQUALS) {
+            selectivity = ((double) height / width) / total;
+        }
+
+        if (op == Predicate.Op.NOT_EQUALS) {
+            selectivity = 1 - selectivity;
+        } else if (op == Predicate.Op.GREATER_THAN || op == Predicate.Op.GREATER_THAN_OR_EQ) {
+            double bF = (double) height / total;
+            int bRight = min + (i + 1) * width - 1;
+            double bPart = (double) (bRight - v) / width;
+            selectivity += bF * bPart;
+            for (int j = i + 1; j < buckets; j++) {
+                selectivity += ((double) counts[j] / total);
+            }
+        } else if (op == Predicate.Op.LESS_THAN || op == Predicate.Op.LESS_THAN_OR_EQ) {
+            double bF = (double) height / total;
+            int bLeft = min + i * width;
+            double bPart = (double) (v - bLeft) / width;
+            selectivity += bF * bPart;
+            for (int j = 0; j < i; j++) {
+                selectivity += ((double) counts[j] / total);
+            }
+        }
+
+        return selectivity;
     }
     
     /**
@@ -58,8 +113,7 @@ public class IntHistogram {
      *     join optimization. It may be needed if you want to
      *     implement a more efficient optimization
      * */
-    public double avgSelectivity()
-    {
+    public double avgSelectivity() {
         // some code goes here
         return 1.0;
     }
@@ -69,6 +123,14 @@ public class IntHistogram {
      */
     public String toString() {
         // some code goes here
-        return null;
+        String s = "";
+        for (int i = 0; i < counts.length; i++) {
+            s += String.format("bucket %d: ", i);
+            s += counts[i];
+            if (i < counts.length - 1) {
+                s += " ";
+            }
+        }
+        return s;
     }
 }
