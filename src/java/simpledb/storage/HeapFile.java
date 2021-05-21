@@ -155,7 +155,7 @@ public class HeapFile implements DbFile {
             boolean opened = false;
 
             private void readPage(HeapPageId pid) throws DbException, TransactionAbortedException {
-                HeapPage page = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_WRITE);
+                HeapPage page = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_ONLY);
                 iterator = page.iterator();
             }
 
