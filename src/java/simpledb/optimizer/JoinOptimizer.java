@@ -179,9 +179,9 @@ public class JoinOptimizer {
         if (joinOp == Predicate.Op.EQUALS) {
             if (t1pkey && t2pkey) {
                 card = Math.min(card1, card2);
-            } else if (t1pkey && !t2pkey) {
+            } else if (t1pkey) {
                 card = card2;
-            } else if (!t1pkey && t2pkey) {
+            } else if (t2pkey) {
                 card = card1;
             } else {
                 card = Math.max(card1, card2);
@@ -248,10 +248,30 @@ public class JoinOptimizer {
             Map<String, TableStats> stats,
             Map<String, Double> filterSelectivities, boolean explain)
             throws ParsingException {
-
         // some code goes here
         //Replace the following
-        return joins;
+        PlanCache pc = new PlanCache();
+
+        for (int i = 1; i <= joins.size(); i++) {
+            for (Set<LogicalJoinNode> subset : enumerateSubsets(joins, i)) {
+                CostCard bestPlan = new CostCard();
+                bestPlan.cost = Double.MAX_VALUE;
+
+                for (LogicalJoinNode node : subset) {
+                    CostCard costCard = computeCostAndCardOfSubplan(stats, filterSelectivities, node, subset, bestPlan.cost, pc);
+                    if (costCard != null) {
+                        bestPlan = costCard;
+                    }
+                }
+                pc.addPlan(subset, bestPlan.cost, bestPlan.card, bestPlan.plan);
+            }
+        }
+
+        List<LogicalJoinNode> order = pc.getOrder(new HashSet<>(joins));
+        if (explain) {
+            printJoins(order, pc, stats, filterSelectivities);
+        }
+        return order;
     }
 
     // ===================== Private Methods =================================
@@ -286,7 +306,6 @@ public class JoinOptimizer {
      *             when stats, filterSelectivities, or pc object is missing
      *             tables involved in join
      */
-    @SuppressWarnings("unchecked")
     private CostCard computeCostAndCardOfSubplan(
             Map<String, TableStats> stats,
             Map<String, Double> filterSelectivities,
