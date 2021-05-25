@@ -112,22 +112,25 @@ public class HeapFile implements DbFile {
         ArrayList<Page> modified = new ArrayList<>();
         HeapPage page = null;
 
-        for (int i = 0; i < numPages(); i++) {
-            HeapPageId id = new HeapPageId(getId(), i);
-            page = (HeapPage) Database.getBufferPool().getPage(tid, id, Permissions.READ_WRITE);
+        for (int i = 0; i <= numPages(); i++) {
+            HeapPageId pid = new HeapPageId(getId(), i);
+
+            synchronized (file) {
+                if (i == numPages()) {
+                    writePage(new HeapPage(pid, HeapPage.createEmptyPageData()));
+                }
+            }
+
+            page = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_ONLY);
             if (page.getNumEmptySlots() > 0) {
                 break;
             }
-            page = null;
+            Database.getBufferPool().unsafeReleasePage(tid, pid);
         }
 
-        if (page == null) {
-            page = new HeapPage(new HeapPageId(getId(), numPages()), HeapPage.createEmptyPageData());
-        }
+        HeapPageId pid = page.getId();
+        page = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_WRITE);
         page.insertTuple(t);
-        if (page.getId().getPageNumber() == numPages()) {
-            writePage(page);
-        }
         modified.add(page);
         return modified;
         // not necessary for lab1
