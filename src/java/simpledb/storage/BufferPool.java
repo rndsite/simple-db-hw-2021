@@ -10,10 +10,10 @@ import simpledb.transaction.TransactionId;
 import javax.xml.crypto.Data;
 import java.io.*;
 
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * BufferPool manages the reading and writing of pages into memory from
@@ -37,9 +37,10 @@ public class BufferPool {
     constructor instead. */
     public static final int DEFAULT_PAGES = 50;
 
-    private int numPages;
-    private ConcurrentHashMap<PageId, Page> pages;
-    private List<PageId> lru;
+    private final int numPages;
+    private final ConcurrentHashMap<PageId, Page> pages;
+    private final List<PageId> lru;
+    private final LockManager lockMgr;
 
     /**
      * Creates a BufferPool that caches up to numPages pages.
@@ -50,7 +51,8 @@ public class BufferPool {
         // some code goes here
         this.numPages = numPages;
         this.pages = new ConcurrentHashMap<>();
-        lru = new LinkedList<>();
+        lru = new CopyOnWriteArrayList<>();
+        lockMgr = new LockManager();
     }
     
     public static int getPageSize() {
@@ -83,6 +85,7 @@ public class BufferPool {
      * @param perm the requested permissions on the page
      */
     public Page getPage(TransactionId tid, PageId pid, Permissions perm) throws TransactionAbortedException, DbException {
+        lockMgr.lock(tid, pid, perm);
         Page page = null;
         if (pages.containsKey(pid)) {
             page = pages.get(pid);
@@ -108,9 +111,10 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      * @param pid the ID of the page to unlock
      */
-    public  void unsafeReleasePage(TransactionId tid, PageId pid) {
+    public void unsafeReleasePage(TransactionId tid, PageId pid) {
         // some code goes here
         // not necessary for lab1|lab2
+        lockMgr.unlock(tid, pid);
     }
 
     /**
@@ -127,7 +131,7 @@ public class BufferPool {
     public boolean holdsLock(TransactionId tid, PageId p) {
         // some code goes here
         // not necessary for lab1|lab2
-        return false;
+        return lockMgr.holdsLock(tid, p);
     }
 
     /**
