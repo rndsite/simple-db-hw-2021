@@ -1,6 +1,7 @@
 package simpledb;
 
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import junit.framework.JUnit4TestAdapter;
@@ -62,7 +63,6 @@ public class TransactionTest extends TestUtil.CreateHeapFile {
     bp.getPage(tid1, p0, Permissions.READ_ONLY);
     bp.getPage(tid1, p1, Permissions.READ_WRITE);
     bp.transactionComplete(tid1, true);
-
     bp.getPage(tid2, p0, Permissions.READ_WRITE);
     bp.getPage(tid2, p0, Permissions.READ_WRITE);
   }

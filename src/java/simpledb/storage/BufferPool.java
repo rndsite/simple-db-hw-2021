@@ -10,8 +10,10 @@ import simpledb.transaction.TransactionId;
 import javax.xml.crypto.Data;
 import java.io.*;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -38,9 +40,10 @@ public class BufferPool {
     public static final int DEFAULT_PAGES = 50;
 
     private final int numPages;
-    private final ConcurrentHashMap<PageId, Page> pages;
+    private final ConcurrentHashMap<PageId, Page> pages = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<TransactionId, Set<PageId>> txnPages = new ConcurrentHashMap<>();
     private final List<PageId> lru;
-    private final LockManager lockMgr;
+    private final LockManager lockMgr = new LockManager();
 
     /**
      * Creates a BufferPool that caches up to numPages pages.
@@ -50,9 +53,7 @@ public class BufferPool {
     public BufferPool(int numPages) {
         // some code goes here
         this.numPages = numPages;
-        this.pages = new ConcurrentHashMap<>();
         lru = new CopyOnWriteArrayList<>();
-        lockMgr = new LockManager();
     }
     
     public static int getPageSize() {
@@ -90,15 +91,17 @@ public class BufferPool {
         if (pages.containsKey(pid)) {
             page = pages.get(pid);
             lru.remove(pid);
-            lru.add(pid);
         } else {
             if (pages.size() >= numPages) {
                 evictPage();
             }
             page = Database.getCatalog().getDatabaseFile(pid.getTableId()).readPage(pid);
             pages.put(pid, page);
-            lru.add(pid);
         }
+        Set<PageId> pids = txnPages.getOrDefault(tid, new HashSet<>());
+        pids.add(pid);
+        txnPages.put(tid, pids);
+        lru.add(pid);
         return page;
     }
 
@@ -125,6 +128,7 @@ public class BufferPool {
     public void transactionComplete(TransactionId tid) {
         // some code goes here
         // not necessary for lab1|lab2
+        transactionComplete(tid, true);
     }
 
     /** Return true if the specified transaction has a lock on the specified page */
@@ -144,6 +148,25 @@ public class BufferPool {
     public void transactionComplete(TransactionId tid, boolean commit) {
         // some code goes here
         // not necessary for lab1|lab2
+        Set<PageId> pids = txnPages.get(tid);
+        for (PageId pid : pids) {
+            if (pages.containsKey(pid) && pages.get(pid).isDirty() != null) {
+                if (commit) {
+                    try {
+                        flushPage(pid);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                } else {
+                    Page page = Database.getCatalog().getDatabaseFile(pid.getTableId()).readPage(pid);
+                    pages.put(pid, page);
+                }
+            }
+
+            unsafeReleasePage(tid, pid);
+        }
+
+        txnPages.remove(tid);
     }
 
     /**
