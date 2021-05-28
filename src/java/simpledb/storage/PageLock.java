@@ -1,6 +1,7 @@
 package simpledb.storage;
 
 import simpledb.common.Permissions;
+import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
 import java.util.HashSet;
@@ -25,7 +26,7 @@ public class PageLock {
         mode = Mode.UNLOCKED;
     }
 
-    public void lock(TransactionId tid, Permissions perm) throws InterruptedException {
+    public void lock(TransactionId tid, Permissions perm) throws InterruptedException, TransactionAbortedException {
         if (perm == Permissions.READ_ONLY) {
             sLock(tid);
         } else {
@@ -55,7 +56,7 @@ public class PageLock {
         }
     }
 
-    private void sLock(TransactionId tid) throws InterruptedException {
+    private void sLock(TransactionId tid) throws InterruptedException, TransactionAbortedException {
         lock.lock();
 
         try {
@@ -68,6 +69,14 @@ public class PageLock {
                     mode = Mode.SHARED;
                     break;
                 }
+
+                // WAIT-DIE
+                for (TransactionId owner : owners) {
+                    if (tid.getId() > owner.getId()) {
+                        throw new TransactionAbortedException();
+                    }
+                }
+
                 cond.await();
             }
         } finally {
@@ -77,7 +86,7 @@ public class PageLock {
         }
     }
 
-    private void xLock(TransactionId tid) throws InterruptedException {
+    private void xLock(TransactionId tid) throws InterruptedException, TransactionAbortedException {
         lock.lock();
 
         try {
@@ -86,12 +95,12 @@ public class PageLock {
                     if (mode == Mode.EXCLUSIVE) {
                         break;
                     }
+                    // Upgrade
                     if (mode == Mode.SHARED) {
                         if (owners.size() == 1) {
                             mode = Mode.EXCLUSIVE;
                             break;
                         }
-                        owners.remove(tid);
                     }
                 }
                 if (mode == Mode.UNLOCKED) {
@@ -99,6 +108,14 @@ public class PageLock {
                     owners.add(tid);
                     break;
                 }
+
+                // WAIT-DIE
+                for (TransactionId owner : owners) {
+                    if (tid.getId() > owner.getId()) {
+                        throw new TransactionAbortedException();
+                    }
+                }
+
                 cond.await();
             }
         } finally {

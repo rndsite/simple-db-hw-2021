@@ -289,9 +289,10 @@ public class BufferPool {
             if (pages.get(lru.get(i)).isDirty() == null) {
                 pages.remove(lru.get(i));
                 lru.remove(i);
-                break;
+                return;
             }
         }
+        throw new DbException("no page to evict");
     }
 
 }

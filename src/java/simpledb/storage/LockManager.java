@@ -1,6 +1,7 @@
 package simpledb.storage;
 
 import simpledb.common.Permissions;
+import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
 import java.util.Map;
@@ -12,7 +13,7 @@ public class LockManager {
 
     public LockManager() {}
 
-    public void lock(TransactionId tid, PageId pid, Permissions perm) {
+    public void lock(TransactionId tid, PageId pid, Permissions perm) throws TransactionAbortedException {
         if (!pageLocks.containsKey(pid)) {
             pageLocks.put(pid, new simpledb.storage.PageLock());
         }
