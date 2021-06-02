@@ -149,6 +149,10 @@ public class BufferPool {
         // some code goes here
         // not necessary for lab1|lab2
         Set<PageId> pids = txnPages.get(tid);
+        if (pids == null) {
+            return;
+        }
+        
         for (PageId pid : pids) {
             if (pages.containsKey(pid) && pages.get(pid).isDirty() != null) {
                 if (commit) {
