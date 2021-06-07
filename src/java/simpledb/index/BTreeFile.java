@@ -771,6 +771,7 @@ public class BTreeFile implements DbFile {
 		}
 		BTreeEntry last = it.next();
 		leftSibling.deleteKeyAndRightChild(last);
+
 		parentEntry.setKey(last.getKey());
 		parent.updateEntry(parentEntry);
 		updateParentPointers(tid, dirtypages, page);
@@ -851,6 +852,29 @@ public class BTreeFile implements DbFile {
 		// the sibling pointers, and make the right page available for reuse.
 		// Delete the entry in the parent corresponding to the two pages that are merging -
 		// deleteParentEntry() will be useful here
+		ArrayList<Tuple> tuples = new ArrayList<>();
+		Iterator<Tuple> it = rightPage.iterator();
+		while (it.hasNext()) {
+			tuples.add(it.next());
+		}
+
+		for (Tuple t : tuples) {
+			rightPage.deleteTuple(t);
+			leftPage.insertTuple(t);
+		}
+
+		BTreePageId furtherRight = rightPage.getRightSiblingId();
+		leftPage.setRightSiblingId(furtherRight);
+		if (furtherRight != null) {
+			leftPage.setRightSiblingId(furtherRight);
+			BTreeLeafPage furtherRightPage = (BTreeLeafPage) getPage(tid, dirtypages, furtherRight, Permissions.READ_WRITE);
+			furtherRightPage.setLeftSiblingId(leftPage.getId());
+		}
+		rightPage.setLeftSiblingId(null);
+		rightPage.setRightSiblingId(null);
+
+		setEmptyPage(tid, dirtypages, rightPage.getId().getPageNumber());
+		deleteParentEntry(tid, dirtypages, leftPage, parent, parentEntry);
 	}
 
 	/**
@@ -884,6 +908,25 @@ public class BTreeFile implements DbFile {
 		// and make the right page available for reuse
 		// Delete the entry in the parent corresponding to the two pages that are merging -
 		// deleteParentEntry() will be useful here
+		ArrayList<BTreeEntry> entries = new ArrayList<>();
+		entries.add(new BTreeEntry(parentEntry.getKey(), leftPage.reverseIterator().next().getRightChild(), rightPage.iterator().next().getLeftChild()));
+
+		Iterator<BTreeEntry> it = rightPage.iterator();
+		while (it.hasNext()) {
+			entries.add(it.next());
+		}
+
+		for (int i = 1; i < entries.size(); i++) {
+			rightPage.deleteKeyAndLeftChild(entries.get(i));
+		}
+
+		for (BTreeEntry e : entries) {
+			leftPage.insertEntry(e);
+		}
+
+		updateParentPointers(tid, dirtypages, leftPage);
+		setEmptyPage(tid, dirtypages, rightPage.getId().getPageNumber());
+		deleteParentEntry(tid, dirtypages, leftPage, parent, parentEntry);
 	}
 	
 	/**

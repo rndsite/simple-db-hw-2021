@@ -4,6 +4,9 @@ import simpledb.common.Database;
 import simpledb.common.Permissions;
 import simpledb.common.DbException;
 import simpledb.common.DeadlockException;
+import simpledb.index.BTreeInternalPage;
+import simpledb.index.BTreePage;
+import simpledb.index.BTreePageId;
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
@@ -223,9 +226,10 @@ public class BufferPool {
         for (Page page : pages) {
             page.markDirty(true, tid);
             PageId id = page.getId();
-            if (this.pages.containsKey(id)) {
-                this.pages.put(id, page);
+            if (!this.pages.containsKey(id)) {
+                getPage(tid, page.getId(), Permissions.READ_WRITE);
             }
+            this.pages.put(id, page);
         }
     }
 
