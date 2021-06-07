@@ -652,6 +652,31 @@ public class BTreeFile implements DbFile {
         // Move some of the tuples from the sibling to the page so
 		// that the tuples are evenly distributed. Be sure to update
 		// the corresponding parent entry.
+		int count = (sibling.getNumTuples() - page.getNumTuples()) / 2;
+		Iterator<Tuple> it = null;
+		if (isRightSibling) {
+			it = sibling.iterator();
+		} else {
+			it = sibling.reverseIterator();
+		}
+		ArrayList<Tuple> tuples = new ArrayList<>();
+		for (int i = 0; i < count; i++) {
+			tuples.add(it.next());
+		}
+		if (!isRightSibling) {
+			Collections.reverse(tuples);
+		}
+		for (Tuple t : tuples) {
+			sibling.deleteTuple(t);
+			page.insertTuple(t);
+		}
+		if (isRightSibling) {
+			it = sibling.iterator();
+		} else {
+			it = page.iterator();
+		}
+		entry.setKey(it.next().getField(keyField));
+		parent.updateEntry(entry);
 	}
 
 	/**
@@ -731,6 +756,25 @@ public class BTreeFile implements DbFile {
 		// that the entries are evenly distributed. Be sure to update
 		// the corresponding parent entry. Be sure to update the parent
 		// pointers of all children in the entries that were moved.
+		int count = (leftSibling.getNumEntries() - page.getNumEntries()) / 2;
+		ArrayList<BTreeEntry> entries = new ArrayList<>();
+		entries.add(new BTreeEntry(parentEntry.getKey(), leftSibling.reverseIterator().next().getRightChild(), page.iterator().next().getLeftChild()));
+		Iterator<BTreeEntry> it = leftSibling.reverseIterator();
+		for (int i = 0; i < count - 1; i++) {
+			entries.add(it.next());
+		}
+		for (int i = 1; i < entries.size(); i++) {
+			leftSibling.deleteKeyAndRightChild(entries.get(i));
+		}
+		for (int i = 0; i < entries.size(); i++) {
+			page.insertEntry(entries.get(i));
+		}
+		BTreeEntry last = it.next();
+		leftSibling.deleteKeyAndRightChild(last);
+		parentEntry.setKey(last.getKey());
+		parent.updateEntry(parentEntry);
+		updateParentPointers(tid, dirtypages, page);
+		updateParentPointers(tid, dirtypages, leftSibling);
 	}
 	
 	/**
@@ -754,10 +798,29 @@ public class BTreeFile implements DbFile {
 			BTreeInternalPage page, BTreeInternalPage rightSibling, BTreeInternalPage parent,
 			BTreeEntry parentEntry) throws DbException, TransactionAbortedException {
 		// some code goes here
-        // Move some of the entries from the right sibling to the page so
+		// Move some of the entries from the right sibling to the page so
 		// that the entries are evenly distributed. Be sure to update
 		// the corresponding parent entry. Be sure to update the parent
 		// pointers of all children in the entries that were moved.
+		int count = (rightSibling.getNumEntries() - page.getNumEntries()) / 2;
+		ArrayList<BTreeEntry> entries = new ArrayList<>();
+		entries.add(new BTreeEntry(parentEntry.getKey(), page.reverseIterator().next().getRightChild(), rightSibling.iterator().next().getLeftChild()));
+		Iterator<BTreeEntry> it = rightSibling.iterator();
+		for (int i = 0; i < count - 1; i++) {
+			entries.add(it.next());
+		}
+		for (int i = 1; i < entries.size(); i++) {
+			rightSibling.deleteKeyAndLeftChild(entries.get(i));
+		}
+		for (int i = 0; i < entries.size(); i++) {
+			page.insertEntry(entries.get(i));
+		}
+		BTreeEntry last = it.next();
+		rightSibling.deleteKeyAndLeftChild(last);
+		parentEntry.setKey(last.getKey());
+		parent.updateEntry(parentEntry);
+		updateParentPointers(tid, dirtypages, page);
+		updateParentPointers(tid, dirtypages, rightSibling);
 	}
 	
 	/**
