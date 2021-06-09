@@ -164,6 +164,8 @@ public class BufferPool {
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
+
+                    pages.get(pid).setBeforeImage();
                 } else {
                     Page page = Database.getCatalog().getDatabaseFile(pid.getTableId()).readPage(pid);
                     pages.put(pid, page);
@@ -272,7 +274,13 @@ public class BufferPool {
         // not necessary for lab1
         if (pages.containsKey(pid)) {
             Page page = pages.get(pid);
-            if (page.isDirty() != null) {
+            TransactionId dirtier = page.isDirty();
+            if (dirtier != null){
+                // append an update record to the log, with
+                // a before-image and after-image.
+                Database.getLogFile().logWrite(dirtier, page.getBeforeImage(), page);
+                Database.getLogFile().force();
+
                 Database.getCatalog().getDatabaseFile(pid.getTableId()).writePage(page);
                 page.markDirty(false, null);
             }

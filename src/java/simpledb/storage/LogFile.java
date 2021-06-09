@@ -2,6 +2,7 @@
 package simpledb.storage;
 
 import simpledb.common.Database;
+import simpledb.common.Permissions;
 import simpledb.transaction.TransactionId;
 import simpledb.common.Debug;
 
@@ -460,6 +461,32 @@ public class LogFile {
             synchronized(this) {
                 preAppend();
                 // some code goes here
+
+                long threshold = 0;
+                if (!tidToFirstLogRecord.containsKey(tid.getId())) {
+                    return;
+                }
+                threshold = tidToFirstLogRecord.get(tid.getId());
+
+                raf.seek(raf.length() - LONG_SIZE);
+                long recordOffset = raf.readLong();
+
+                while (threshold < recordOffset) {
+                    raf.seek(recordOffset);
+
+                    int recordType = raf.readInt();
+                    long recordTid = raf.readLong();
+                    if (recordType == UPDATE_RECORD && recordTid == tid.getId()) {
+                        Page before = readPageData(raf);
+                        Database.getCatalog().getDatabaseFile(before.getId().getTableId()).writePage(before);
+                        Database.getBufferPool().discardPage(before.getId());
+                    }
+
+                    raf.seek(recordOffset - LONG_SIZE);
+                    recordOffset = raf.readLong();
+                }
+
+                raf.seek(currentOffset);
             }
         }
     }
