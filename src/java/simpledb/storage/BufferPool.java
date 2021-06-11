@@ -128,7 +128,7 @@ public class BufferPool {
      *
      * @param tid the ID of the transaction requesting the unlock
      */
-    public void transactionComplete(TransactionId tid) {
+    public void transactionComplete(TransactionId tid) throws IOException {
         // some code goes here
         // not necessary for lab1|lab2
         transactionComplete(tid, true);
@@ -148,7 +148,7 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      * @param commit a flag indicating whether we should commit or abort
      */
-    public void transactionComplete(TransactionId tid, boolean commit) {
+    public void transactionComplete(TransactionId tid, boolean commit) throws IOException {
         // some code goes here
         // not necessary for lab1|lab2
         Set<PageId> pids = txnPages.get(tid);
@@ -157,14 +157,11 @@ public class BufferPool {
         }
         
         for (PageId pid : pids) {
-            if (pages.containsKey(pid) && pages.get(pid).isDirty() != null) {
+            if (pages.containsKey(pid)) {
                 if (commit) {
-                    try {
+                    if (pages.get(pid).isDirty() != null) {
                         flushPage(pid);
-                    } catch (IOException e) {
-                        e.printStackTrace();
                     }
-
                     pages.get(pid).setBeforeImage();
                 } else {
                     Page page = Database.getCatalog().getDatabaseFile(pid.getTableId()).readPage(pid);

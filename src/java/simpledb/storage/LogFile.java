@@ -3,6 +3,7 @@ package simpledb.storage;
 
 import simpledb.common.Database;
 import simpledb.common.Permissions;
+import simpledb.transaction.Transaction;
 import simpledb.transaction.TransactionId;
 import simpledb.common.Debug;
 
@@ -461,34 +462,32 @@ public class LogFile {
             synchronized(this) {
                 preAppend();
                 // some code goes here
-
-                long threshold = 0;
-                if (!tidToFirstLogRecord.containsKey(tid.getId())) {
-                    return;
-                }
-                threshold = tidToFirstLogRecord.get(tid.getId());
-
                 raf.seek(raf.length() - LONG_SIZE);
-                long recordOffset = raf.readLong();
-
-                while (threshold < recordOffset) {
-                    raf.seek(recordOffset);
-
-                    int recordType = raf.readInt();
-                    long recordTid = raf.readLong();
-                    if (recordType == UPDATE_RECORD && recordTid == tid.getId()) {
-                        Page before = readPageData(raf);
-                        Database.getCatalog().getDatabaseFile(before.getId().getTableId()).writePage(before);
-                        Database.getBufferPool().discardPage(before.getId());
-                    }
-
-                    raf.seek(recordOffset - LONG_SIZE);
-                    recordOffset = raf.readLong();
-                }
-
-                raf.seek(currentOffset);
+                rollback(tid.getId(), LONG_SIZE, raf.readLong());
             }
         }
+    }
+
+    private void rollback(long tid, long endOffset, long recordOffset) throws NoSuchElementException, IOException {
+        long threshold = endOffset;
+        if (tidToFirstLogRecord.containsKey(tid)) {
+            threshold = tidToFirstLogRecord.get(tid);
+        }
+
+        while (threshold < recordOffset) {
+            raf.seek(recordOffset);
+            int recordType = raf.readInt();
+            long recordTid = raf.readLong();
+            if (recordType == UPDATE_RECORD && recordTid == tid) {
+                Page before = readPageData(raf);
+                Database.getCatalog().getDatabaseFile(before.getId().getTableId()).writePage(before);
+                Database.getBufferPool().discardPage(before.getId());
+            }
+            raf.seek(recordOffset - LONG_SIZE);
+            recordOffset = raf.readLong();
+        }
+
+        raf.seek(currentOffset);
     }
 
     /** Shutdown the logging system, writing out whatever state
@@ -505,6 +504,85 @@ public class LogFile {
         }
     }
 
+    // Active txn should be included in loser set.
+    private long readCheckpoint(Set<Long> loser) throws IOException {
+        raf.seek(0);
+        long startCpOffset = raf.readLong();
+
+        if (startCpOffset == NO_CHECKPOINT_ID) {
+            return LONG_SIZE;
+        }
+
+        raf.seek(startCpOffset);
+        int recordType = raf.readInt();
+        if (recordType != CHECKPOINT_RECORD) {
+            throw new IOException();
+        }
+        raf.readLong(); // tid -1 for spacing
+        int keysSize = raf.readInt();
+        tidToFirstLogRecord.clear();
+        for (int i = 0; i < keysSize; i++) {
+            long tid = raf.readLong();
+            long offset = raf.readLong();
+            tidToFirstLogRecord.put(tid, offset);
+            // this checkpoint may contain dirty data
+            // eg: t1 starts and updates data before checkpoint, never commit or abort before crash
+            loser.add(tid);
+        }
+        raf.readLong();
+
+        return startCpOffset;
+    }
+
+    // Forward pass, redo update and abort record.
+    private void redo(Set<Long> loser, long startCpOffset) throws IOException {
+        while (true) {
+            try {
+                int recordType = raf.readInt();
+                long recordTid = raf.readLong();
+
+                totalRecords++;
+
+                switch (recordType) {
+                    case BEGIN_RECORD:
+                        raf.readLong();
+                        loser.add(recordTid);
+                        break;
+                    case COMMIT_RECORD:
+                        raf.readLong();
+                        loser.remove(recordTid);
+                        break;
+                    case ABORT_RECORD:
+                        long recordOffset = raf.readLong();
+                        long offset = raf.getFilePointer();
+                        rollback(recordTid, startCpOffset, recordOffset);
+                        raf.seek(offset);
+                        loser.remove(recordTid);
+                        break;
+                    case CHECKPOINT_RECORD:
+                        throw new IOException();
+                    case UPDATE_RECORD:
+                        readPageData(raf);
+                        Page after = readPageData(raf);
+                        Database.getCatalog().getDatabaseFile(after.getId().getTableId()).writePage(after);
+                        raf.readLong();
+                        break;
+                }
+            } catch (EOFException e) {
+                break;
+            }
+        }
+    }
+
+    // Backward pass, rollback losers.
+    private void undo(Set<Long> loser) throws IOException {
+        raf.seek(raf.length() - LONG_SIZE);
+        long recordOffset = raf.readLong();
+        for (Long tid : loser) {
+            rollback(tid, LONG_SIZE, recordOffset);
+        }
+    }
+
     /** Recover the database system by ensuring that the updates of
         committed transactions are installed and that the
         updates of uncommitted transactions are not installed.
@@ -514,8 +592,16 @@ public class LogFile {
             synchronized (this) {
                 recoveryUndecided = false;
                 // some code goes here
+
+                currentOffset = raf.length();
+                // loser: only appears in BEGIN_RECORD but not in COMMIT_RECORD or ABORT_RECORD
+                Set<Long> loser = new HashSet<>();
+
+                long startCpOffset = readCheckpoint(loser);
+                redo(loser, startCpOffset);
+                undo(loser);
             }
-         }
+        }
     }
 
     /** Print out a human readable represenation of the log */
